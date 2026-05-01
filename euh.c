@@ -1,179 +1,177 @@
-#include "buffer.h"
+/* Célia HAMAM 12309320
+	Je déclare qu'il s'agit de mon propre travail.
+	Ce travail a été réalisé intégralement par un être humain. 
+*/
 
-#include <fcntl.h>
-#include <stdlib.h>
+
 #include <unistd.h>
+#include <sys/socket.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <poll.h>
+#include "buffer/buffer.h"
+#include "utils.h"
+#include <string.h>
 
-/* la structure interne du buffer, cachée dans le .c
- * (c'est un type opaque, le client ne voit que le typedef dans le .h) */
-struct buffer {
-	int fd;              // le fichier qu'on lit
-	char *data;          // le tampon (tableau alloué dynamiquement)
-	size_t size;         // capacité totale du tampon
-	size_t start;        // index du premier octet pas encore consommé
-	size_t len;          // nombre d'octets encore valides dans le tampon
-	int eof;             // flag : est-ce qu'on a atteint la fin du fichier ?
-	int ungot;           // caractère remis par buff_ungetc (un seul garanti)
-	int has_ungot;       // booléen : est-ce qu'on a un caractère en attente ?
-};
+#define PORT_FREESCORD 4321
+#define BUFF_SIZE 1024
 
-/** Créer un buffer associé au fichier fd, avec un tampon de taille buffsz */
-buffer *buff_create(int fd, size_t buffsz)
-{
-	// allouer la structure
-	buffer *b = malloc(sizeof(buffer));
-	if (b == NULL)
-		return NULL;
 
-	// allouer le tampon
-	b->data = malloc(buffsz);
-	if (b->data == NULL) {
-		free(b);
-		return NULL;
+/** se connecter au serveur TCP d'adresse donnée en argument sous forme de
+ * chaîne de caractère et au port donné en argument
+ * retourne le descripteur de fichier de la socket obtenue ou -1 en cas
+ * d'erreur. */
+int connect_serveur_tcp(char *adresse, uint16_t port);
+
+int main(int argc, char *argv[])
+{	
+
+	// verifier qu'on a bien une addresse ip en argument
+	if (argc < 2) {
+		fprintf(stderr, "Usage : %s <adresse_ip> \n", argv[0]);
+		return 1;
 	}
 
-	// initialiser tous les champs
-	b->fd = fd;
-	b->size = buffsz;
-	b->start = 0;
-	b->len = 0;
-	b->eof = 0;
-	b->has_ungot = 0;
+	// se connecter au serveur
+	int fd = connect_serveur_tcp(argv[1], PORT_FREESCORD);
+	if (fd == -1) return 1;
+	printf("Connecté au serveur %s sur le port %d \n", argv[1], PORT_FREESCORD);
 
-	return b;
-}
+	char buf_envoi[BUFF_SIZE];
+	char buf_reponse[BUFF_SIZE];
 
-/** Lire le prochain caractère depuis le buffer.
- *  Si le tampon est vide, on recharge avec read() */
-int buff_getc(buffer *b)
-{
-	// si un caractère a été remis avec ungetc, on le rend en priorité
-	if (b->has_ungot) {
-		b->has_ungot = 0;
-		return b->ungot;
+	// === EXO 6 : on crée un buffer pour lire depuis la socket de façon bufferisée ===
+	// au lieu d'appeler read() à chaque fois, on laisse le buffer gérer le tampon
+	buffer *b = buff_create(fd, BUFF_SIZE);
+	if (b == NULL) {
+		perror("buff_create");
+		close(fd);
+		return 1;
 	}
 
-	// si le tampon est vide, il faut recharger
-	if (b->len == 0) {
-		if (b->eof)
-			return EOF;
+// exo3: on utilise poll pour surveiller stdin et la socket en meme temps
+	struct pollfd fds[2];
+	// fds[0] = stdin
+	fds[0].fd = STDIN_FILENO;
+	fds[0].events = POLLIN;
+	// fds[1] = la socket connectee au serveur
+	fds[1].fd = fd;
+	fds[1].events = POLLIN;
 
-		ssize_t n = read(b->fd, b->data, b->size);
-		if (n <= 0) {
-			// n == 0  -> fin de fichier
-			// n == -1 -> erreur (on traite les deux pareil ici)
-			b->eof = 1;
-			return EOF;
-		}
 
-		b->start = 0;
-		b->len = (size_t)n;
-	}
+	for(;;) {
 
-	// consommer un caractère du tampon
-	unsigned char c = (unsigned char)b->data[b->start];
-	b->start++;
-	b->len--;
-
-	return (int)c;
-}
-
-/** Remettre un caractère dans le buffer.
- *  La spec garantit que ça marche pour un seul caractère */
-int buff_ungetc(buffer *b, int c)
-{
-	// on stocke dans le champ dédié, c'est plus simple que de reculer dans le tampon
-	b->ungot = c;
-	b->has_ungot = 1;
-	return c;
-}
-
-/** Libérer le buffer et son tampon */
-void buff_free(buffer *b)
-{
-	if (b != NULL) {
-		free(b->data);
-		free(b);
-	}
-}
-
-/** Retourne vrai si on a atteint la fin du fichier ET qu'il ne reste rien à lire */
-int buff_eof(const buffer *b)
-{
-	return b->eof && b->len == 0 && !b->has_ungot;
-}
-
-/** Retourne vrai s'il reste des octets dans le tampon sans faire de read */
-int buff_ready(const buffer *b)
-{
-	return b->len > 0 || b->has_ungot;
-}
-
-/** Lire une ligne terminée par '\n' (LF) */
-char *buff_fgets(buffer *b, char *dest, size_t size)
-{
-	if (size == 0)
-		return NULL;
-
-	size_t i = 0;
-	int c;
-
-	// on lit caractère par caractère jusqu'à '\n', EOF, ou saturation du dest
-	while (i < size - 1) {
-		c = buff_getc(b);
-		if (c == EOF)
-			break;
-
-		dest[i++] = (char)c;
-
-		if (c == '\n')
-			break;
-	}
-
-	// si on n'a rien lu et qu'on est en EOF, c'est une fin pure
-	if (i == 0 && c == EOF)
-		return NULL;
-
-	dest[i] = '\0';
-	return dest;
-}
-
-/** Lire une ligne terminée par "\r\n" (CRLF).
- *  La séquence "\r\n" est conservée dans dest si elle est trouvée */
-char *buff_fgets_crlf(buffer *b, char *dest, size_t size)
-{
-	if (size == 0)
-		return NULL;
-
-	size_t i = 0;
-	int c;
-
-	while (i < size - 1) {
-		c = buff_getc(b);
-		if (c == EOF)
-			break;
-
-		dest[i++] = (char)c;
-
-		// si on tombe sur '\r', il faut vérifier si '\n' suit
-		if (c == '\r') {
-			int d = buff_getc(b);
-			if (d == '\n') {
-				// CRLF complet trouvé, on garde le '\n' et on s'arrête
-				dest[i++] = (char)d;
+		// === EXO 6 : traiter d'abord les lignes déjà présentes dans le buffer ===
+		// la condition poll ne suffit pas : il peut rester des octets dans le tampon
+		// qui forment déjà une ligne complète (\r\n), sans besoin d'appel système
+		if (buff_ready(b)) {
+			if (buff_fgets_crlf(b, buf_reponse, sizeof(buf_reponse)) != NULL) {
+				// le protocole freescord envoie du CRLF, on convertit en LF pour l'affichage Unix
+				crlf_to_lf(buf_reponse);
+				// pas de \n supplémentaire : buf_reponse contient déjà le \n final
+				printf("\r\033[1;36mServeur > \033[0m%s", buf_reponse);
+				fflush(stdout);
+				continue; // retour en haut : peut-être qu'il y a d'autres lignes en buffer
+			} else if (buff_eof(b)) {
+				printf("\nLe serveur a fermé la connexion\n");
 				break;
-			} else if (d != EOF) {
-				// ce n'était pas une fin de ligne, on remet le caractère
-				// et on continue à lire (on cherchera un vrai CRLF plus loin)
-				buff_ungetc(b, d);
 			}
-			// si d == EOF, la boucle s'arrêtera au prochain tour
+			// si on arrive ici, buff_fgets_crlf a retourné NULL sans EOF
+			// c'est qu'il n'y a pas encore de ligne complète dans le buffer
+			// (début d'une ligne reçue, la suite arrivera nécessairement)
+			// on laisse tomber et on passe au poll normal
+		}
+
+
+		printf("\033[1;35mVous > \033[0m");
+		fflush(stdout);
+
+	// exo 3: poll est bloquant jusqu'à ce qu'un des descripteurs soit pret
+		// -1 = on attend a l'infini
+		int ret = poll(fds, 2, -1);
+		if (ret == -1) {
+			perror("poll"); break;
+		}
+
+		// cas1 : si stdin a qlq chose à lire
+		if (fds[0].revents & POLLIN) {
+			if (fgets(buf_envoi, sizeof(buf_envoi), stdin) == NULL) {
+				printf("\nFin de saisie (ctrl+D).\nDeconnexion.\n");
+				break;
+			}
+
+			// === EXO 6 : le protocole freescord veut des lignes en CRLF ===
+			// fgets nous donne du LF (unix), il faut convertir avant d'envoyer
+			lf_to_crlf(buf_envoi);
+
+			// envoyer le message au serveur
+			// attention au nombre d'octets : strlen compte bien le \r\n ajouté
+			size_t len = strlen(buf_envoi);
+			if (write(fd, buf_envoi, len) != (ssize_t)len) {
+				perror("write"); break;
+			}
+		}
+
+		// cas2: la socket a recu des données du serveur
+		if (fds[1].revents & POLLIN) {
+			// === EXO 6 : lecture bufferisée d'une ligne CRLF ===
+			// buff_fgets_crlf va lire dans le tampon, et faire read() automatiquement si besoin
+			if (buff_fgets_crlf(b, buf_reponse, sizeof(buf_reponse)) != NULL) {
+				crlf_to_lf(buf_reponse);
+				printf("\r\033[1;36mServeur > \033[0m%s", buf_reponse);
+				fflush(stdout);
+			} else if (buff_eof(b)) {
+				printf("\nLe serveur a fermé la connexion\n");
+				break;
+			}
+			// si buff_fgets_crlf retourne NULL sans EOF, c'est qu'on n'a pas
+			// encore de ligne complète (\r\n). La suite arrivera nécessairement.
 		}
 	}
 
-	if (i == 0 && c == EOF)
-		return NULL;
+	buff_free(b); // === EXO 6 : libérer le buffer avant de fermer ===
+	close(fd);
+	return 0;
+}
 
-	dest[i] = '\0';
-	return dest;
+int connect_serveur_tcp(char *adresse, uint16_t port)
+{
+	//creation socket TCP ipv4
+	int fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd == -1) {
+		perror("socket");
+		return -1;
+	}
+
+	// remplir la struct d'adresse du serveur
+	struct sockaddr_in addr_srv;
+	memset(&addr_srv, 0, sizeof(addr_srv));
+	addr_srv.sin_family = AF_INET; // ipv4
+	addr_srv.sin_port = htons(port); // port
+
+	// convertir l'adresse en binaire et la mettre dans la struct
+	int addr_bin = inet_pton(AF_INET, adresse, &addr_srv.sin_addr);
+	if (addr_bin == 0) { // adresse non valide
+		fprintf(stderr, "adresse non valide : %s \n", adresse);
+		close(fd);
+		return -1;
+	}
+
+	if (addr_bin == -1) { // erreur
+		perror("inet_pton");
+		close(fd);
+		return -1;
+	}
+
+	// connect (on etablie la connexion tcp avec le serveur)
+	if (connect(fd, (struct sockaddr *)&addr_srv, sizeof(addr_srv)) == -1) {
+		perror("connect");
+		close(fd);
+		return -1;
+	}
+
+	return fd; // on retourne le fd de la socket connectee au serveur
 }

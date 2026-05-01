@@ -43,6 +43,14 @@ int main(int argc, char *argv[])
 	char buf_envoi[BUFF_SIZE];
 	char buf_reponse[BUFF_SIZE];
 
+// exo 6: on crée un buffer pour lire depuis la socket de façon bufferisée
+	buffer *b = buff_create(fd, BUFF_SIZE);
+	if (b == NULL) {
+		perror("buff_create");
+		close(fd);
+		return 1;
+	}
+
 // exo3: on utilise poll pour surveiller stdin et la socket en meme temps
 	struct pollfd fds[2];
 	// fds[0] = stdin
@@ -54,11 +62,28 @@ int main(int argc, char *argv[])
 
 
 	for(;;) {
-		//printf("Vous > "); // todo: à mettre en rouge
+
+// exo6 : on traite d'abord les lignes deja présentes dans le buffer 
+
+		if (buff_ready(b)) {
+			if (buff_fgets_crlf(b, buf_reponse, sizeof(buf_reponse)) != NULL) {
+				// le protocole freescord envoie du CRLF donc on convertit en LF pour l'affichage unix
+				crlf_to_lf(buf_reponse);
+
+				printf("\r\033[1;36mServeur > \033[0m%s", buf_reponse);
+				fflush(stdout);
+				continue;
+			} else if (buff_eof(b)) {
+				printf("\nLe serveur a fermé la connexion\n");
+				break;
+			}
+		}
+
+
 		printf("\033[1;35mVous > \033[0m");
 		fflush(stdout);
 
-	// exo 3: poll est bloquant jusqu'à ce qu'un des descripteurs soit pret
+// exo 3: poll est bloquant jusqu'à ce qu'un des descripteurs soit pret
 		// -1 = on attend a l'infini
 		int ret = poll(fds, 2, -1);
 		if (ret == -1) {
@@ -72,6 +97,10 @@ int main(int argc, char *argv[])
 				break;
 			}
 
+	// exo 6: le protocole freescord veut des lignes en CRLF 
+			// fgets nous donne du LF (unix) donc l faut convertir avant d'envoyer
+			lf_to_crlf(buf_envoi);
+
 			// envoyer le message au serveur
 			size_t len = strlen(buf_envoi);
 			if (write(fd, buf_envoi, len) != (ssize_t)len) {
@@ -81,19 +110,19 @@ int main(int argc, char *argv[])
 
 		// cas2: la socket a recu des données du serveur
 		if (fds[1].revents & POLLIN) {
-			ssize_t n = read(fd, buf_reponse, sizeof(buf_reponse) - 1);
-			if (n <= 0) {
-				if (n == 0) printf("\nLe serveur a fermé la connexion\n");
-				else perror("read");
+
+			if (buff_fgets_crlf(b, buf_reponse, sizeof(buf_reponse)) != NULL) {
+				crlf_to_lf(buf_reponse);
+				printf("\r\033[1;36mServeur > \033[0m%s", buf_reponse);
+				fflush(stdout);
+			} else if (buff_eof(b)) {
+				printf("\nLe serveur a fermé la connexion\n");
 				break;
 			}
-			buf_reponse[n] = '\0';
-
-			printf("\r\033[1;36mServeur > \033[0m%s\n", buf_reponse); // avec une couleur bleue :))
-			fflush(stdout);
 		}
 	}
 
+	buff_free(b);
 	close(fd);
 	return 0;
 }
