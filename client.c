@@ -43,36 +43,55 @@ int main(int argc, char *argv[])
 	char buf_envoi[BUFF_SIZE];
 	char buf_reponse[BUFF_SIZE];
 
+// exo3: on utilise poll pour surveiller stdin et la socket en meme temps
+	struct pollfd fds[2];
+	// fds[0] = stdin
+	fds[0].fd = STDIN_FILENO;
+	fds[0].events = POLLIN;
+	// fds[1] = la socket connectee au serveur
+	fds[1].fd = fd;
+	fds[1].events = POLLIN;
+
 
 	for(;;) {
-		printf("Vous >  ");
+		//printf("Vous > "); // todo: à mettre en rouge
+		printf("\033[1;35mVous > \033[0m");
 		fflush(stdout);
 
-		if (fgets(buf_envoi, sizeof(buf_envoi), stdin) == NULL) {
-			printf("\nFin de saisie (ctrl+D).\nDeconnexion.\n");
-			break;
+	// exo 3: poll est bloquant jusqu'à ce qu'un des descripteurs soit pret
+		// -1 = on attend a l'infini
+		int ret = poll(fds, 2, -1);
+		if (ret == -1) {
+			perror("poll"); break;
 		}
 
-		// envoyer le message au serveur
-		size_t len = strlen(buf_envoi);
-        if (write(fd, buf_envoi, len) != (ssize_t)len) {
-            perror("write");
-            break;
-        }
+		// cas1 : si stdin a qlq chose à lire
+		if (fds[0].revents & POLLIN) {
+			if (fgets(buf_envoi, sizeof(buf_envoi), stdin) == NULL) {
+				printf("\nFin de saisie (ctrl+D).\nDeconnexion.\n");
+				break;
+			}
 
-		// lire la reponse du serveur dans buf_reception
-		// read est bloquant, on attend la reponse du serveur
-		ssize_t n = read(fd, buf_reponse, sizeof(buf_reponse) - 1);
-		if(n <= 0) {
-			if (n == 0) printf("Le serveur a fermé la connexion.\n"); 
-			else perror("read");
-			break;
+			// envoyer le message au serveur
+			size_t len = strlen(buf_envoi);
+			if (write(fd, buf_envoi, len) != (ssize_t)len) {
+				perror("write"); break;
+			}
 		}
-		buf_reponse[n] = '\0'; // ajouter un \0 pour faire une chaine de caractere
-		
-		//printf("Serveur > %s\n", buf_reponse); 
-		printf("\033[1;34mServeur > \033[0m%s\n", buf_reponse);
-		fflush(stdout);
+
+		// cas2: la socket a recu des données du serveur
+		if (fds[1].revents & POLLIN) {
+			ssize_t n = read(fd, buf_reponse, sizeof(buf_reponse) - 1);
+			if (n <= 0) {
+				if (n == 0) printf("\nLe serveur a fermé la connexion\n");
+				else perror("read");
+				break;
+			}
+			buf_reponse[n] = '\0';
+
+			printf("\r\033[1;36mServeur > \033[0m%s\n", buf_reponse); // avec une couleur bleue :))
+			fflush(stdout);
+		}
 	}
 
 	close(fd);

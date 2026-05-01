@@ -14,8 +14,6 @@
 #include <string.h>
 #include "list/list.h"
 #include "user.h"
-#include "user.c"
-#include <string.h>
 
 
 #define PORT_FREESCORD 4321
@@ -28,8 +26,40 @@ void *handle_client(void *user);
  * retourne le descripteur de cette socket, ou -1 en cas d'erreur */
 int create_listening_sock(uint16_t port);
 
-int main(int argc, char *argv[])
-{
+// EXO 3: variables globales
+int pipe_fds[2]; // pipe_fds[0] = lecture, et pipe_fds[1] = ecriture (threads clients)
+
+// la liste des utilisateurs connctés
+struct list *users_connectes;
+
+// un mutex pour protéger l'acces à la liste (ajout/suppression d'utilisateurs)
+pthread_mutex_t users_mutex;
+
+//thread répéteur qui lit le pipe et renvoie chaque message à tous les clients
+void *th_repeteur(void *arg);
+
+
+int main(int argc, char *argv[]) {
+
+	// == CODE EXO 3 == 
+	if (pipe(pipe_fds) == -1) {
+		perror("pipe");
+		return 1;
+	}
+
+	if (pthread_mutex_init(&users_mutex, NULL) != 0) {
+		perror("init mutex");
+		return 1;
+	}
+
+	users_connectes = list_create();
+
+	pthread_t th_rep;
+	if (pthread_create(&th_rep, NULL, th_repeteur, NULL) != 0) {
+		perror("pthread_create repeater");
+		return 1;
+	}
+	pthread_detach(th_rep);
 
 	int sock = create_listening_sock(PORT_FREESCORD);
 	if (sock == -1)  return 1; 
@@ -69,11 +99,21 @@ int main(int argc, char *argv[])
 		printf("Nouveau client connecté :  %s (fd = %d) \n", 
 			inet_ntoa(addr_in->sin_addr),  us->sock);
 
-		// on lance un thread pour gerer le client pour que main puisse retourner a accept() immediatement 
-		// et accepter un 2eme client pendant que le thread traite le 1er  
+
+		// ===CODE EXO 3 : ajouter le new user a la liste partagée===
+		pthread_mutex_lock(&users_mutex);
+		list_add(users_connectes, us);
+		pthread_mutex_unlock(&users_mutex);
+
 		pthread_t tid; 
 		if (pthread_create(&tid, NULL, handle_client, us) != 0) {
-			perror("pthread_create");
+			perror("pthread create");
+
+			// ajouts exo3
+			pthread_mutex_lock(&users_mutex);
+			list_remove_element(users_connectes, us);
+			pthread_mutex_unlock(&users_mutex);
+
 			user_free(us);
 			continue;
 		}
@@ -82,12 +122,14 @@ int main(int argc, char *argv[])
 	}
 
 	close(sock);
+	pthread_mutex_destroy(&users_mutex);
 	return 0;
 }
 
 void *handle_client(void *clt)
 {
-	// exo 1: clt est directment le fd du client (exo 2: on remplace par une struct user)
+	// code exo 1: clt est directment le fd du client (exo 2: on remplace par une struct user)
+
 	/* int client_fd = *(int *)clt;
 	free(clt);
 
@@ -105,23 +147,36 @@ void *handle_client(void *clt)
 
 	printf("Client déconnecté (fd = %d) \n", client_fd);
 	close(client_fd);
-	return NULL; */
+	return NULL; 
+	*/
 
-	// exo 2: clt est mtn une strutc user*
+	// code exo 2: clt est mtn une strutc user*
 	struct user *us = (struct user *)clt;
 	char buffer[BUFF_SIZE];
 	ssize_t n;
 
-	// boucle d'echo exo 2
+	// boucle d'echo
 	while((n= read(us->sock, buffer, sizeof(buffer))) > 0) {
-		if(write(us->sock, buffer, n) != n) {
+		// exo 2
+		/* if(write(us->sock, buffer, n) != n) {
 			perror("write");
 			break;
+		} */
+		
+		// exo3
+		if(write(pipe_fds[1], buffer, n) != n) {
+			perror("write pipe"); break;
 		}
 	}
 	if(n == -1)  perror("read");
 
 	printf("Client déconnecté (fd = %d) \n", us->sock);
+
+	// exo3: on retire le client de la liste avant de liberer sa memoire
+	pthread_mutex_lock(&users_mutex);
+	list_remove_element(users_connectes, us);
+	pthread_mutex_unlock(&users_mutex);
+
 	user_free(us); // ferme la socket et libere la memoire de us
 	return NULL;
 }
@@ -165,4 +220,31 @@ int create_listening_sock(uint16_t port) {
 
 	printf("Le serveur écoute sur le port %d \n", port);
 	return sock; // descripteur de  la socket 
+}
+
+//thread répéteur (EXO 3)
+void *th_repeteur(void *arg) {
+	(void)arg;
+	char buffer[BUFF_SIZE];
+	ssize_t n;
+
+	// on lit en boucle ce qui arrive dans le pipe
+	while ((n = read(pipe_fds[0], buffer, sizeof(buffer))) > 0) {
+
+		pthread_mutex_lock(&users_mutex);
+		
+		//envoyer le message a tous les clients de la liste
+		struct node *curr = users_connectes->first;
+		while (curr != NULL) {
+			struct user *us = (struct user *)curr->elt;
+			if (write(us->sock, buffer, n) == -1) {
+				perror("write to client");
+			}
+			curr = curr->next;
+		}
+
+		pthread_mutex_unlock(&users_mutex);
+	}
+
+	return NULL;
 }

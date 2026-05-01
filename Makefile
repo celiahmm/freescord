@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -g -Wall -Wvla -std=c99 -pthread -D_XOPEN_SOURCE=700
 LDFLAGS = -pthread -Wall
 EXE = srv clt
-TEST = list/test_list
+TEST = list/test_list testbuf
 
 all: $(EXE)
 
@@ -24,6 +24,11 @@ list/test_list: list/test_list.o list/list.o
 
 buffer/buffer.o: buffer/buffer.c buffer/buffer.h
 
+# === CORRECTION ICI : chemins buffer/ ===
+buffer/test_buffer.o: buffer/test_buffer.c buffer/buffer.h
+testbuf: buffer/test_buffer.o buffer/buffer.o
+	$(CC) $(LDFLAGS) $^ -o $@
+
 test: testlist
 
 testlist: list/test_list
@@ -31,3 +36,5 @@ testlist: list/test_list
 
 clean:
 	rm -f *.o list/*.o buffer/*.o $(EXE) $(TEST)
+
+.PHONY: all clean test testlist
