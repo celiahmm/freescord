@@ -6,7 +6,7 @@ TEST = list/test_list testbuf
 
 all: $(EXE)
 
-srv: serveur.o list/list.o user.o
+srv: serveur.o list/list.o user.o buffer/buffer.o utils.o
 	$(CC) $(LDFLAGS) $^ -o $@
 
 clt: client.o buffer/buffer.o utils.o
@@ -16,15 +16,12 @@ client.o: client.c
 serveur.o: serveur.c list/list.h
 user.o: user.c user.h
 utils.o: utils.c utils.h
-
 list/list.o: list/list.c list/list.h
 list/test_list.o: list/test_list.c list/list.h
 list/test_list: list/test_list.o list/list.o
 	$(CC) $(LDFLAGS) $^ -o $@
 
 buffer/buffer.o: buffer/buffer.c buffer/buffer.h
-
-# === CORRECTION ICI : chemins buffer/ ===
 buffer/test_buffer.o: buffer/test_buffer.c buffer/buffer.h
 testbuf: buffer/test_buffer.o buffer/buffer.o
 	$(CC) $(LDFLAGS) $^ -o $@

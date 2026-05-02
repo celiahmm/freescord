@@ -14,6 +14,8 @@
 #include <string.h>
 #include "list/list.h"
 #include "user.h"
+#include "buffer/buffer.h"
+#include "utils.h"
 
 
 #define PORT_FREESCORD 4321
@@ -37,6 +39,10 @@ pthread_mutex_t users_mutex;
 
 //thread répéteur qui lit le pipe et renvoie chaque message à tous les clients
 void *th_repeteur(void *arg);
+
+// exo 7 : fonctions de verification d'un nickname
+int check_nickname(const char *nick);
+int nickname_existe(const char *nick);
 
 
 int main(int argc, char *argv[]) {
@@ -126,13 +132,42 @@ int main(int argc, char *argv[]) {
 	return 0;
 }
 
-void *handle_client(void *clt)
-{
-	// code exo 1: clt est directment le fd du client (exo 2: on remplace par une struct user)
+// exo 7 : verifier qu'un nickname est valide (pas trop long, pas de ':', pas vide)
+// retourne 0 si ok, 2 sinon (erreur)
+int check_nickname(const char *nick) {
+
+	if (nick == NULL || nick[0] == '\0') return 2;
+
+	size_t len = strlen(nick);
+	if (len > NICKNAME_MAX) return 2; // trop long
+
+	//caractere ':' est interdit
+	for (size_t i = 0; i < len; i++) {
+		if (nick[i] == ':') return 2;
+	}
+
+	return 0;
+}
+
+// exo 7 : verifier qu'un nickname n'est pas déjà pris par un autre user connecté
+// retourne 1 si déjà pris, 0 sinon
+int nickname_existe(const char *nick) {
+
+	struct node *curr = users_connectes->first;
+	while (curr != NULL) {
+		struct user *u = (struct user *)curr->elt;
+		// on compare les pseudos (sensible à la casse)
+		if (strcmp(u->nickname, nick) ==0) return 1;
+		curr = curr->next;
+	}
+	return 0;
+}
+
+void *handle_client(void *clt) {
+	// code exo 1: clt est directment le fd du client
 
 	/* int client_fd = *(int *)clt;
 	free(clt);
-
 	char buffer[BUFF_SIZE];
 	ssize_t n;
 
@@ -144,40 +179,125 @@ void *handle_client(void *clt)
 		}
 	}
 	if(n == -1)  perror("read");
-
 	printf("Client déconnecté (fd = %d) \n", client_fd);
 	close(client_fd);
 	return NULL; 
 	*/
 
-	// code exo 2: clt est mtn une strutc user*
+	// code exo 2: clt est mtn une struct user*
 	struct user *us = (struct user *)clt;
-	char buffer[BUFF_SIZE];
-	ssize_t n;
 
-	// boucle d'echo
-	while((n= read(us->sock, buffer, sizeof(buffer))) > 0) {
-		// exo 2
-		/* if(write(us->sock, buffer, n) != n) {
-			perror("write");
-			break;
-		} */
-		
-		// exo3
-		if(write(pipe_fds[1], buffer, n) != n) {
+	// exo 7 : on cree un buffer pour lire les lignes du client proprement
+	buffer *b = buff_create(us->sock, BUFF_SIZE);
+	if (b == NULL) {
+		perror("buff_create");
+		pthread_mutex_lock(&users_mutex);
+		list_remove_element(users_connectes, us);
+		pthread_mutex_unlock(&users_mutex);
+		user_free(us);
+		return NULL;
+	}
+
+	// exo 7 message de bienvenue terminé par une ligne vide
+	const char *bienvenue =
+		"Bienvenue sur freescord !\r\n"
+		"Pour choisir votre pseudo, tapez : nickname <votre_pseudo>\r\n"
+		"\r\n"; // ligne vide = fin du message de bienvenue
+	write(us->sock, bienvenue, strlen(bienvenue));
+
+
+	// on boucle jusqu'à ce que le client envoie un pseudo valide et dispo
+	char line[BUFF_SIZE];
+	us->nickname[0] = '\0'; // pas encore de pseudo
+
+	while (us->nickname[0] == '\0') {
+		// lire une ligne du client (format CRLF)
+		if (buff_fgets_crlf(b, line, sizeof(line)) == NULL) {
+			// client déconnecté avant d'avoir choisi un pseudo
+			buff_free(b);
+			pthread_mutex_lock(&users_mutex);
+			list_remove_element(users_connectes, us);
+			pthread_mutex_unlock(&users_mutex);
+			user_free(us);
+			return NULL;
+		}
+
+		// enlever le CRLF final
+		crlf_to_lf(line);
+		size_t len = strlen(line);
+		if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
+
+		// la commande doit commencer par "nickname "
+		if (strncmp(line, "nickname ", 9) != 0) {
+			// code 3 : la commande n'est pas "nickname "
+			write(us->sock, "3 Commande invalide, utilisez : nickname <pseudo>\r\n", 51);
+			continue;
+		}
+
+		// extraire le pseudo (ce qui suit "nickname ")
+		char *nickname = line + 9;
+
+		// verifier que le pseudo est valide
+		int code = check_nickname(nickname);
+		if (code != 0) {
+			// code 2 : pseudo invalide
+			write(us->sock, "2 Pseudo invalide (trop long ou contient ':')\r\n", 47);
+			continue;
+		}
+
+		// verifier que le pseudo n'est pas déjà pris
+		pthread_mutex_lock(&users_mutex);
+		int taken = nickname_existe(nickname);
+		if (taken) {
+			pthread_mutex_unlock(&users_mutex);
+			// code 1 : pseudo deja pris
+			write(us->sock, "1 Pseudo deja pris, choisissez-en un autre\r\n", 44);
+			continue;
+		}
+
+		// tout est ok donc on enregistre le pseudo dans la struct user
+		strncpy(us->nickname, nickname, NICKNAME_MAX);
+		us->nickname[NICKNAME_MAX] = '\0'; // securite au cas où
+		pthread_mutex_unlock(&users_mutex);
+
+		// code 0 : pseudo accepté donc on le confirme au client
+		char ok_msg[BUFF_SIZE];
+		snprintf(ok_msg, sizeof(ok_msg), "0 Pseudo '%s' accepte\r\n", us->nickname);
+		write(us->sock, ok_msg, strlen(ok_msg));
+
+		printf("Nouveau pseudo enregistré : %s\n", us->nickname);
+	}
+
+	// EXO 7 : boucle principale de reception des messages
+	// maintenant que le client a un pseudo, on lit ses messages et on les
+	// préfixe par "pseudo: message" avant de les envoyer dans le pipe
+	while (buff_fgets_crlf(b, line, sizeof(line)) != NULL) {
+
+		// enlever le CRLF du message recu pour le recoller proprement apres
+		crlf_to_lf(line);
+		size_t llen = strlen(line);
+		if (llen > 0 && line[llen - 1] == '\n') line[llen - 1] = '\0';
+
+		// construire le message préfixé : "pseudo: message\r\n"
+		char prefixed[BUFF_SIZE + NICKNAME_MAX + 4]; // on met +4 pour ": " + "\r\n"
+		snprintf(prefixed, sizeof(prefixed), "%s: %s\r\n", us->nickname, line);
+
+		// on envoie le message préfixé dans le pipe
+		size_t plen = strlen(prefixed);
+		if (write(pipe_fds[1], prefixed, plen) != (ssize_t)plen) {
 			perror("write pipe"); break;
 		}
 	}
-	if(n == -1)  perror("read");
 
-	printf("Client déconnecté (fd = %d) \n", us->sock);
+	printf("Client déconnecté : %s (fd = %d) \n", us->nickname, us->sock);
 
-	// exo3: on retire le client de la liste avant de liberer sa memoire
+	// on retire le client de la liste avant de liberer sa memoire
 	pthread_mutex_lock(&users_mutex);
 	list_remove_element(users_connectes, us);
 	pthread_mutex_unlock(&users_mutex);
 
-	user_free(us); // ferme la socket et libere la memoire de us
+	buff_free(b);
+	user_free(us);
 	return NULL;
 }
 
@@ -223,6 +343,7 @@ int create_listening_sock(uint16_t port) {
 }
 
 //thread répéteur (EXO 3)
+// il lit le pipe en boucle et envoie chaque message a tous les clients connectes
 void *th_repeteur(void *arg) {
 	(void)arg;
 	char buffer[BUFF_SIZE];
