@@ -17,6 +17,7 @@ client_display.o: client_display.c client_display.h
 serveur.o: serveur.c list/list.h
 user.o: user.c user.h
 utils.o: utils.c utils.h
+
 list/list.o: list/list.c list/list.h
 list/test_list.o: list/test_list.c list/list.h
 list/test_list: list/test_list.o list/list.o
@@ -34,5 +35,3 @@ testlist: list/test_list
 
 clean:
 	rm -f *.o list/*.o buffer/*.o $(EXE) $(TEST)
-
-.PHONY: all clean test testlist

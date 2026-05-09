@@ -20,7 +20,7 @@
 #define PORT_FREESCORD 4321
 #define BUFF_SIZE 1024
 
-// ==== codes couleurs ANSI pour personnaliser l'interface du client ====
+//codes couleurs ANSI pour personnaliser l'interface du client
 #define RESET       "\033[0m"
 #define BOLD        "\033[1m"
 #define GREEN       "\033[38;5;120m"
@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
 			printf("\n");
 
 		} else {
-			// pseudo refusé : afficher la réponse du serveur en utilisant
+			// pseudo refusé : afficher la reponse du serveur en utilisant
 			// la fonction d'affichage (gère les erreurs en rouge)
 			client_afficher_message(buf_reponse, mon_pseudo);
 			client_print_prompt();

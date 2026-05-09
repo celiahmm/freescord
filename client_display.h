@@ -6,4 +6,4 @@ void client_print_banner(void);
 void client_print_prompt(void);
 void client_afficher_message(const char *msg, const char *mon_pseudo);
 
-#endif /* CLIENT_DISPLAY_H */
+#endif

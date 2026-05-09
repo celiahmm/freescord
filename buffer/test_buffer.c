@@ -25,7 +25,7 @@ int main(void)
 	// on bufferise la lecture
 	buffer *b = buff_create(fd, 4);
 
-	printf("____ Test buff_fgets_crlf ____\n");
+	printf("Test buff_fgets_crlf\n");
 	char ligne[64];
 	while (buff_fgets_crlf(b, ligne, sizeof(ligne)) != NULL) {
 		printf("lue : [%s] (len=%zu)\n", ligne, strlen(ligne));
@@ -37,15 +37,13 @@ int main(void)
 	close(fd);
 	unlink(tmpname);
 
-	// test avec l'entrée standard (décommente pour essayer manuellement)
-	
-	printf("\n=== Test avec stdin (buff_fgets) ===\n");
+	// test avec l'entrée standard 
+	/* printf("\nTest avec stdin (buff_fgets)\n");
 	buffer *bin = buff_create(STDIN_FILENO, 16);
 	while (buff_fgets(bin, ligne, sizeof(ligne)) != NULL) {
 		printf("Lu : [%s]\n", ligne);
 	}
-	buff_free(bin);
+	buff_free(bin); */
 	
-
 	return 0;
 }

@@ -29,7 +29,7 @@ void *handle_client(void *user);
 int create_listening_sock(uint16_t port);
 
 // EXO 3: variables globales
-int pipe_fds[2]; // pipe_fds[0] = lecture, et pipe_fds[1] = ecriture (threads clients)
+int pipe_fds[2]; // pipe_fds[0] = lecture, et pipe_fds[1] = ecriture
 
 // la liste des utilisateurs connctés
 struct list *users_connectes;
@@ -37,7 +37,7 @@ struct list *users_connectes;
 // un mutex pour protéger l'acces à la liste (ajout/suppression d'utilisateurs)
 pthread_mutex_t users_mutex;
 
-//thread répéteur qui lit le pipe et renvoie chaque message à tous les clients
+//thread repeteur qui lit le pipe et renvoie chaque message à tous les clients
 void *th_repeteur(void *arg);
 
 // exo 7 : fonctions de verification d'un nickname
@@ -47,7 +47,7 @@ int nickname_existe(const char *nick);
 
 int main(int argc, char *argv[]) {
 
-	// == CODE EXO 3 == 
+	// CODE EXO 3 
 	if (pipe(pipe_fds) == -1) {
 		perror("pipe");
 		return 1;
@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
 	if (sock == -1)  return 1; 
 
 	for(;;) { 
-		// ===CODE EXO 1===
+		// CODE EXO 1
 		/* struct sockaddr_in client_addr;
 		socklen_t client_len = sizeof(client_addr);
 
@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
 		handle_client(client_fd);
  */
 
-		// ===CODE EXO 2===
+		// CODE EXO 2
 		struct user *us = user_accept(sock);
 		if (!us) continue; // si echec on reesaye
 
@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
 			inet_ntoa(addr_in->sin_addr),  us->sock);
 
 
-		// ===CODE EXO 3 : ajouter le new user a la liste partagée===
+		// CODE EXO 3 : ajouter le new user a la liste partagée
 		pthread_mutex_lock(&users_mutex);
 		list_add(users_connectes, us);
 		pthread_mutex_unlock(&users_mutex);
@@ -141,7 +141,7 @@ int check_nickname(const char *nick) {
 	size_t len = strlen(nick);
 	if (len > NICKNAME_MAX) return 2; // trop long
 
-	//caractere ':' est interdit
+	//caractere ':' interdit
 	for (size_t i = 0; i < len; i++) {
 		if (nick[i] == ':') return 2;
 	}
@@ -201,7 +201,6 @@ void *handle_client(void *clt) {
 	// exo 7 message de bienvenue terminé par une ligne vide
 	const char *bienvenue =
 		"Bienvenue sur freescord !\r\n"
-		// "Pour choisir votre pseudo, tapez : nickname <votre_pseudo>\r\n"
 		"\r\n"; // ligne vide = fin du message de bienvenue
 	write(us->sock, bienvenue, strlen(bienvenue));
 
@@ -213,7 +212,7 @@ void *handle_client(void *clt) {
 	while (us->nickname[0] == '\0') {
 		// lire une ligne du client (format CRLF)
 		if (buff_fgets_crlf(b, line, sizeof(line)) == NULL) {
-			// client déconnecté avant d'avoir choisi un pseudo
+			// client deconnecté avant d'avoir choisi un pseudo
 			buff_free(b);
 			pthread_mutex_lock(&users_mutex);
 			list_remove_element(users_connectes, us);
