@@ -9,10 +9,11 @@ all: $(EXE)
 srv: serveur.o list/list.o user.o buffer/buffer.o utils.o
 	$(CC) $(LDFLAGS) $^ -o $@
 
-clt: client.o buffer/buffer.o utils.o
+clt: client.o client_display.o buffer/buffer.o utils.o
 	$(CC) $(LDFLAGS) $^ -o $@
 
 client.o: client.c
+client_display.o: client_display.c client_display.h
 serveur.o: serveur.c list/list.h
 user.o: user.c user.h
 utils.o: utils.c utils.h

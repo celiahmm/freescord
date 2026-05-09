@@ -201,7 +201,7 @@ void *handle_client(void *clt) {
 	// exo 7 message de bienvenue terminé par une ligne vide
 	const char *bienvenue =
 		"Bienvenue sur freescord !\r\n"
-		"Pour choisir votre pseudo, tapez : nickname <votre_pseudo>\r\n"
+		// "Pour choisir votre pseudo, tapez : nickname <votre_pseudo>\r\n"
 		"\r\n"; // ligne vide = fin du message de bienvenue
 	write(us->sock, bienvenue, strlen(bienvenue));
 
@@ -230,7 +230,8 @@ void *handle_client(void *clt) {
 		// la commande doit commencer par "nickname "
 		if (strncmp(line, "nickname ", 9) != 0) {
 			// code 3 : la commande n'est pas "nickname "
-			write(us->sock, "3 Commande invalide, utilisez : nickname <pseudo>\r\n", 51);
+			write(us->sock, "Erreur (3) : Commande invalide, utilisez : nickname <pseudo>\r\n", 
+			      strlen("Erreur (3) : Commande invalide, utilisez : nickname <pseudo>\r\n"));
 			continue;
 		}
 
@@ -241,7 +242,8 @@ void *handle_client(void *clt) {
 		int code = check_nickname(nickname);
 		if (code != 0) {
 			// code 2 : pseudo invalide
-			write(us->sock, "2 Pseudo invalide (trop long ou contient ':')\r\n", 47);
+			write(us->sock, "Erreur (2) : Pseudo invalide (trop long ou contient ':')\r\n", 
+			      strlen("Erreur (2) : Pseudo invalide (trop long ou contient ':')\r\n"));
 			continue;
 		}
 
@@ -251,7 +253,8 @@ void *handle_client(void *clt) {
 		if (taken) {
 			pthread_mutex_unlock(&users_mutex);
 			// code 1 : pseudo deja pris
-			write(us->sock, "1 Pseudo deja pris, choisissez-en un autre\r\n", 44);
+			write(us->sock, "Erreur (1) : Pseudo deja pris, choisissez-en un autre\r\n", 
+			      strlen("Erreur (1) : Pseudo deja pris, choisissez-en un autre\r\n"));
 			continue;
 		}
 
@@ -354,11 +357,12 @@ void *th_repeteur(void *arg) {
 
 		pthread_mutex_lock(&users_mutex);
 		
-		//envoyer le message a tous les clients de la liste
+		//envoyer le message a tous les clients de la liste (seulement ceux avec un pseudo valide)
 		struct node *curr = users_connectes->first;
 		while (curr != NULL) {
 			struct user *us = (struct user *)curr->elt;
-			if (write(us->sock, buffer, n) == -1) {
+			// on envoie seulement aux clients qui ont choisi un pseudo
+			if (us->nickname[0] != '\0' && write(us->sock, buffer, n) == -1) {
 				perror("write to client");
 			}
 			curr = curr->next;
