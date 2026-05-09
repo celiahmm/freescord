@@ -12,10 +12,11 @@
 #define BOLD        "\033[1m"
 #define DIM         "\033[2m"
 #define CYAN        "\033[38;5;87m"
-#define GREEN       "\033[38;5;120m"
+#define BLUE       "\033[38;5;159m"
+#define GREEN       "\033[38;5;71m"
 #define YELLOW      "\033[38;5;221m"
 #define GREY        "\033[38;5;245m"
-#define PURPLE    "\033[38;5;56m"
+#define PURPLE    "\033[38;5;141m"
 #define RED		  	"\033[38;5;88m"
 
 // pour afficher l'heure avant chaque message
@@ -78,14 +79,14 @@ void client_afficher_message(const char *msg, const char *mon_pseudo)
 
 		print_heure();
 
-		// si le message vient de moi, on affiche le pseudo en violet, sinon en cyan
+		// si le message vient de moi, on affiche le pseudo en violet, sinon en bleu
 		size_t name_len = strlen(nick); // pour aligner les msgs on calcule un padding pour que le contenu commence toujours a la meme colonne
 		int pad = 16 - (int)name_len;
 		if (pad < 0) pad = 0;
 		if (strcmp(nick, mon_pseudo) == 0)
 			printf(PURPLE BOLD "  %s:" RESET "%*s " "%s" RESET, nick, pad, "", contenu);
 		else
-			printf(CYAN BOLD "  %s:" RESET "%*s " "%s" RESET, nick, pad, "", contenu);
+			printf(BLUE BOLD "  %s:" RESET "%*s " "%s" RESET, nick, pad, "", contenu);
 
 	} else {
 		print_heure();
