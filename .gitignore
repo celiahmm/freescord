@@ -1,0 +1,9 @@
+.vscode/ 
+*.log
+*.out
+.DS_Store
+
+notes.txt
+rapport_freescord.pdf
+buffer/test_buffer.c
+list/test_list.c
